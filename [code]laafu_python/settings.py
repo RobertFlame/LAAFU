@@ -3,6 +3,26 @@ This file will store some of the paramters of the whole LAAFU program
 Author: Robert ZHAO Ziqi
 '''
 
+# This controls the ratio of data that will be trained in one iteration of GP
+# Used in gaussian_process.py
+data_ratio = 0.7
+
+# This controls the number of iterations in GP
+# Used in gaussian_process.py
+num_ite = 8
+
+# This controls the iterations of detection
+# Used in find_altered_ap.py
+repeat_times = 5
+
+# This controls the minimum count of altered points
+# Used in find_altered_ap.py
+min_count = 7
+
+# This controls the confidence of regarding as altered
+# Used in find_altered_ap.py
+confidence_ratio = 0.7
+
 # This controls when to discard AP with small number of corresponding positions
 # Used in ap_map_rp() in test_gp.py
 min_size_to_process = 5 

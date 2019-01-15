@@ -9,6 +9,7 @@ import numpy as np
 import scipy.optimize as opt
 import sys
 import random
+import gc
 
 from utils import sqd_exp, sqd_sum
 import settings
@@ -24,49 +25,92 @@ class gp:
             rssi(list of floats):
             with_z(int):
 
-            gN(long): size of training data
-            gKy(gN*gN Matrix): inverse of Ky, or temp (xp - xq)T(xp - xq)
-            gT(gN*gN Matrix): temp matrix
-            gX(gN*2 Matrix): training input data X
-            gY(gN*1 Matrix): training input data Y, or temp(Ky-1)(Y-m(X))
             g_pGP(3*1 Col. Vector): GP parameters: sigma_n, sigma_f,l
             g_pLDPL(4(5)*1 Col. Vector): LDPL parameters: A, B, x_ap, y_ap, (z_ap)
             
         """
-
-        # get size
-        self.gN = len(rssi)
-
-        # set size
-        self.gKy = np.zeros(shape=(self.gN, self.gN))
-        self.gT = np.zeros(shape=(self.gN, self.gN))
-        self.gX = np.zeros(shape=(self.gN, 2))
-        self.gY = np.zeros(shape=(self.gN, 1))
-        self.g_pGP = np.zeros(shape=(3, 1))
-        self.g_pLDPL = np.zeros(shape=(4, 1))
-        if with_z:
-            self.g_pLDPL = np.zeros(shape=(5, 1))
+        self.rssi = rssi
+        self.position = position
 
         self.with_z = with_z
-
-        # load data
-        for i in range(self.gN):
-            self.gY[i, 0] = rssi[i]
-            self.gX[i, 0] = position[i][0]
-            self.gX[i, 1] = position[i][1]
 
     # ###################### Public #################
 
     # ----------------------training-----------------
 
-    def train(self):
+    def train(self, num_ite=settings.num_ite):
         """
         Train function for gaussian process
 
-        """
+        Args:
+            gN(long): size of training data
+            gKy(gN*gN Matrix): inverse of Ky, or temp (xp - xq)T(xp - xq)
+            gT(gN*gN Matrix): temp matrix
+            gX(gN*2 Matrix): training input data X
+            gY(gN*1 Matrix): training input data Y, or temp(Ky-1)(Y-m(X))
 
-        self._train_ldpl()
-        self._train_gp()
+        """
+        total_n = len(self.rssi)
+
+        if total_n == 0:
+            print("No data")
+            return
+
+        # get size
+        self.gN = min(max(int(settings.data_ratio * total_n), 1), total_n)
+        
+        for ite in range(num_ite):
+            idxs = random.sample(range(total_n),self.gN)
+
+            # set size
+            self.gKy = np.zeros(shape=(self.gN, self.gN))
+            self.gT = np.zeros(shape=(self.gN, self.gN))
+            self.gX = np.zeros(shape=(self.gN, 2))
+            self.gY = np.zeros(shape=(self.gN, 1))
+
+            self.g_pGP = np.zeros(shape=(3, 1))
+            self.g_pLDPL = np.zeros(shape=(4, 1))
+            if self.with_z == 1:
+                self.g_pLDPL = np.zeros(shape=(5, 1))
+
+            # loda data
+            for i in range(self.gN):
+                self.gY[i, 0] = self.rssi[idxs[i]]
+                self.gX[i, 0] = self.position[idxs[i]][0]
+                self.gX[i, 1] = self.position[idxs[i]][1]
+        
+            # train
+            self._train_ldpl()
+            self._train_gp()
+
+            # verification
+            err = 0
+            for i in range(total_n):
+                if i in idxs:
+                    continue
+                t_x,t_y = self.position[i]
+                t_rssi = self.rssi[i]
+                esti_rssi, esti_sd = self.estimate_gp(t_x,t_y,sd_mode=False)
+                err += abs(esti_rssi-t_rssi)
+
+            if ite == 0:
+                min_err = err
+                min_ldpl = self.g_pLDPL
+                min_gp = self.g_pGP
+            
+            if err < min_err:
+                min_err = err
+                min_ldpl = self.g_pLDPL
+                min_gp = self.g_pGP
+            
+            gc.collect()
+        
+        self.g_pLDPL = min_ldpl
+        self.g_pGP = min_gp
+
+        # Save memory
+        del self.rssi
+        del self.position
 
     # ---------------------prediction-----------------
 
@@ -106,7 +150,8 @@ class gp:
         sd = 0
         if sd_mode:
             sd2 = self.g_pGP[1, 0]**2 - k_star_t.dot(self.gKy).dot(k_star_t.T)
-            sd = np.sqrt(sd2)
+            if sd2 > 0:
+                sd = np.sqrt(sd2)
         return float(mu[0][0]), sd
 
     # --------------------get parameters--------------
